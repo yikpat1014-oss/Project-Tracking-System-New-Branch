@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Harborland Setup Dashboard</title>
+    
+    <!-- 1. โหลด Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. โหลด Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- 3. Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "recharts": "https://esm.sh/recharts@2.12.2?external=react,react-dom",
+            "lucide-react": "https://esm.sh/lucide-react@0.344.0?external=react,react-dom",
+            "html2canvas": "https://esm.sh/html2canvas@1.4.1"
+        }
+    }
+    </script>
+
+    <!-- 4. Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        .cursor-wait { cursor: wait; }
+        /* Custom class for Rainbow Text compatibility during capture */
+        .pastel-rainbow-text-stable {
+            /* Fallback to solid white for capture reliability */
+            color: white; 
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200">
+    <div id="root"></div>
+
+    <!-- 5. Main Script -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useMemo, useRef, useEffect } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { 
+            PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+        } from 'recharts';
+        import { 
+            LayoutDashboard, FileText, Users, Calendar, MapPin, Activity, CheckCircle, Camera, Download, X, AlertTriangle, RotateCcw
+        } from 'lucide-react';
+        import html2canvas from 'html2canvas';
+
+        // --- Data ---
+        const ZONES = [
+            { id: 'zone2', name: 'Ticket Counter/Check In-Out/Locker & Shoes' },
+            { id: 'zone3', name: 'Mini Mart' },
+            { id: 'zone4', name: 'Main Play Area-A' },
+            { id: 'zone5', name: 'Main Play Area-B' },
+            { id: 'zone6', name: 'Main Play Area-C' },
+            { id: 'zone7', name: 'Toy Land' },
+            { id: 'zone8', name: 'Harbor Town' },
+            { id: 'zone9', name: 'Art Room' },
+            { id: 'zone10', name: 'Common area' },
+            { id: 'zone11', name: 'Party Room/Relax/Quiet/Shower/Breast Feeding/BB.Café' },
+            { id: 'zone12', name: 'Storage Room/Finance Room/Staff Room' },
+        ];
+
+        const CRITERIA = [
+            { key: 'cleanliness', label: 'ความสะอาด', color: 'url(#rainbowCleanliness)' }, 
+            { key: 'arrangement', label: 'การจัดเรียง', color: 'url(#rainbowArrangement)' }, 
+            { key: 'installation', label: 'ติดตั้งอุปกรณ์', color: 'url(#rainbowInstallation)' }, 
+        ];
+
+        // --- Components ---
+        const RainbowCard = ({ children, className = "", internalClass = "bg-gray-900 border-gray-800", style = {} }) => (
+            <div className={`relative p-[3px] rounded-2xl bg-gradient-to-r from-red-500 via-orange-500 via-yellow-500 via-green-500 via-blue-500 via-indigo-500 to-purple-500 shadow-lg ${className}`} style={style}>
+                <div className={`rounded-xl h-full w-full overflow-hidden border relative z-10 ${internalClass}`}>
+                    {children}
+                </div>
+            </div>
+        );
+
+        const RainbowProgressBar = ({ value }) => {
+            const rainbowGradient = "linear-gradient(90deg, #ef4444, #f97316, #eab308, #22c55e, #3b82f6, #8b5cf6, #a855f7)";
+            return (
+                <div className="w-full h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                    <div 
+                        className="h-full rounded-full transition-all duration-500 shadow-inner" 
+                        style={{ width: `${value}%`, background: rainbowGradient, boxShadow: '0 0 8px rgba(255, 255, 255, 0.3)' }}
+                    ></div>
+                </div>
+            );
+        };
+        
+        // Helper function to get color class based on progress (NO BACKGROUND BOX)
+        const getTotalColorClass = (average) => {
+            if (average === 100) {
+                return 'text-emerald-400 font-extrabold'; // Completed (Bright green text)
+            } else if (average > 0) {
+                return 'text-white font-bold'; // In Progress (White text)
+            } else {
+                return 'text-gray-500 font-bold'; // Not Started (0%) (Gray text)
+            }
+        };
+
+
+        function HarborlandSetupApp() {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [isCapturing, setIsCapturing] = useState(false);
+            const [previewImage, setPreviewImage] = useState(null);
+            const [isResetModalOpen, setIsResetModalOpen] = useState(false); // State for Reset Modal
+            const dashboardRef = useRef(null);
+            
+            const [generalInfo, setGeneralInfo] = useState({
+                date: new Date().toISOString().split('T')[0],
+                branch: 'Harborland Gateway Ekamai',
+                staffCount: '' // Changed to empty string to prevent showing 0
+            });
+
+            // Function to initialize zone data to 0%
+            const initializeZoneData = () => {
+                const initialData = {};
+                ZONES.forEach(zone => {
+                    initialData[zone.id] = { cleanliness: '', arrangement: '', installation: '' }; // Initial value is empty string
+                });
+                return initialData;
+            };
+
+            const [zoneData, setZoneData] = useState(initializeZoneData);
+
+            // Function to handle the actual reset
+            const handleResetData = () => {
+                setZoneData(initializeZoneData());
+                setGeneralInfo(prev => ({
+                    ...prev,
+                    staffCount: '' // Reset staff count display to empty string
+                }));
+                setIsResetModalOpen(false);
+            };
+
+
+            const handleCaptureImage = async () => {
+                if (!dashboardRef.current) return;
+                setIsCapturing(true);
+                
+                const originalScrollY = window.scrollY;
+                const originalScrollX = window.scrollX;
+
+                try {
+                    window.scrollTo(0, 0);
+                    await document.fonts.ready;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    const element = dashboardRef.current;
+                    const canvas = await html2canvas(element, {
+                        backgroundColor: '#030712', 
+                        scale: 2, 
+                        useCORS: true, 
+                        logging: false,
+                        allowTaint: true,
+                        width: element.scrollWidth,
+                        height: element.scrollHeight,
+                        x: 0,
+                        y: 0,
+                        onclone: (clonedDoc) => {
+                            const clonedElement = clonedDoc.querySelector('.dashboard-container');
+                            if(clonedElement) {
+                                clonedElement.style.animation = 'none';
+                                clonedElement.style.transition = 'none';
+                                clonedElement.style.opacity = '1';
+                                clonedElement.style.display = 'block';
+                            }
+                            // FIX for Pastel Rainbow Text: Ensure solid color for capture reliability
+                            const titleElement = clonedDoc.querySelector('.pastel-rainbow-text-stable');
+                            if(titleElement) {
+                                titleElement.style.color = '#FFFFFF'; // Force white text
+                                titleElement.style.webkitTextFillColor = '#FFFFFF'; 
+                                titleElement.style.textShadow = '0 0 5px rgba(0,0,0,0.5)'; 
+                            }
+                        }
+                    });
+                    
+                    const image = canvas.toDataURL('image/jpeg', 0.9);
+                    setPreviewImage(image);
+                    
+                } catch (error) {
+                    // Using console.error instead of alert as alert can be blocked.
+                    console.error("Capture failed:", error.message);
+                } finally {
+                    setIsCapturing(false);
+                    window.scrollTo(originalScrollX, originalScrollY);
+                }
+            };
+
+            const downloadFromModal = () => {
+                if (!previewImage) return;
+                const link = document.createElement('a');
+                link.download = `Harborland_Status_${generalInfo.date}.jpg`;
+                link.href = previewImage;
+                link.click();
+            };
+
+            const formatDate = (dateString) => {
+                if (!dateString) return '-';
+                const [year, month, day] = dateString.split('-');
+                const thaiYear = parseInt(year) + 543;
+                return `${day}/${month}/${thaiYear}`;
+            };
+
+            const handleZoneChange = (zoneId, criteriaKey, value) => {
+                const numValue = value === '' ? '' : Math.min(100, Math.max(0, Number(value)));
+                setZoneData(prev => ({
+                    ...prev,
+                    [zoneId]: { ...prev[zoneId], [criteriaKey]: numValue }
+                }));
+            };
+
+            const handleGeneralChange = (field, value) => {
+                const numValue = field === 'staffCount' ? (value === '' ? '' : Math.max(0, Number(value))) : value; // Handle empty string
+                setGeneralInfo(prev => ({ ...prev, [field]: numValue }));
+            };
+
+            const stats = useMemo(() => {
+                let totalScore = 0;
+                let totalItems = 0;
+                // Safely convert staffCount (which can be '') to number for display
+                const staffCountValue = generalInfo.staffCount === '' ? '' : Number(generalInfo.staffCount); 
+                
+                const chartData = ZONES.map(zone => {
+                    const data = zoneData[zone.id];
+                    // Convert potentially empty strings to 0 for average calculation
+                    const cl = Number(data.cleanliness || 0);
+                    const ar = Number(data.arrangement || 0);
+                    const inst = Number(data.installation || 0);
+                    
+                    const zoneAvg = (cl + ar + inst) / 3;
+                    
+                    totalScore += zoneAvg;
+                    totalItems += 1;
+                    const nameParts = zone.name.split('/');
+                    const shortName = nameParts[0] + (nameParts.length > 1 ? '...' : '');
+                    return {
+                        id: zone.id,
+                        name: shortName,
+                        displayName: zone.name,
+                        cleanliness: cl,
+                        arrangement: ar,
+                        installation: inst,
+                        average: Math.round(zoneAvg)
+                    };
+                });
+                const overallProgress = totalItems > 0 ? Math.round(totalScore / totalItems) : 0;
+                const criteriaAverages = CRITERIA.map(c => {
+                    const sum = ZONES.reduce((acc, zone) => acc + Number(zoneData[zone.id][c.key] || 0), 0);
+                    return { subject: c.label, A: Math.round(sum / ZONES.length), fullMark: 100 };
+                });
+                return { overallProgress, chartData, criteriaAverages, staffCountValue };
+            }, [zoneData, generalInfo.staffCount]);
+
+            const pieData = [
+                { name: 'Completed', value: stats.overallProgress },
+                { name: 'Remaining', value: 100 - stats.overallProgress },
+            ];
+
+            return (
+                <div className="min-h-screen bg-gray-950 text-gray-200 font-sans pb-20">
+                    
+                    {/* --- RESET CONFIRMATION MODAL --- */}
+                    {isResetModalOpen && (
+                        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm" onClick={() => setIsResetModalOpen(false)}>
+                            <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-sm flex flex-col shadow-2xl border border-red-500/50" onClick={e => e.stopPropagation()}>
+                                <div className="text-center mb-4">
+                                    <AlertTriangle className="text-red-500 mx-auto mb-3" size={40} />
+                                    <h3 className="text-gray-100 font-bold text-xl">ยืนยันการรีเซ็ตข้อมูล</h3>
+                                    <p className="text-gray-400 text-sm mt-2">คุณแน่ใจหรือไม่ที่จะรีเซ็ตค่าความคืบหน้าทั้งหมดเป็น 0%? การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
+                                </div>
+
+                                <div className="flex space-x-3 mt-4">
+                                    <button onClick={handleResetData} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-transform active:scale-95 flex justify-center items-center">
+                                        <RotateCcw size={20} className="mr-2" /> ยืนยันการรีเซ็ต
+                                    </button>
+                                    <button onClick={() => setIsResetModalOpen(false)} className="flex-none bg-gray-600 text-gray-200 py-3 px-6 rounded-xl font-bold hover:bg-gray-700 transition-colors">
+                                        ยกเลิก
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modal for Image Preview */}
+                    {previewImage && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+                            <div className="bg-white rounded-2xl p-4 w-full max-w-lg max-h-[90vh] overflow-y-auto flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                    <h3 className="text-gray-900 font-bold text-lg flex items-center">
+                                        <CheckCircle className="text-green-500 mr-2" size={20} />
+                                        บันทึกรูปภาพสำเร็จ
+                                    </h3>
+                                    <button onClick={() => setPreviewImage(null)} className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100">
+                                        <X size={24} />
+                                    </button>
+                                </div>
+                                
+                                <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm mb-4 border border-blue-100">
+                                    <p className="font-semibold mb-1">💡 วิธีบันทึกรูปภาพ:</p>
+                                    <ul className="list-disc list-inside space-y-1">
+                                        <li><b>มือถือ/แท็บเล็ต:</b> แตะค้างที่รูปด้านล่าง แล้วเลือก "บันทึกรูปภาพ" (Save to Photos)</li>
+                                        <li><b>คอมพิวเตอร์:</b> คลิกขวาที่รูป แล้วเลือก "Save image as..." หรือกดปุ่มดาวน์โหลดด้านล่าง</li>
+                                    </ul>
+                                </div>
+
+                                <div className="flex-grow flex justify-center bg-gray-100 rounded-lg border border-gray-200 p-2 mb-4">
+                                    <img src={previewImage} alt="Dashboard Result" className="max-w-full h-auto object-contain rounded shadow-sm" />
+                                </div>
+
+                                <div className="flex space-x-3">
+                                    <button onClick={downloadFromModal} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-transform active:scale-95 flex justify-center items-center">
+                                        <Download size={20} className="mr-2" /> ดาวน์โหลด (PC)
+                                    </button>
+                                    <button onClick={() => setPreviewImage(null)} className="flex-none bg-gray-200 text-gray-800 py-3 px-6 rounded-xl font-bold hover:bg-gray-300 transition-colors">
+                                        ปิด
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Header */}
+                    <header className="bg-gray-900/80 backdrop-blur-md border-b border-gray-800 sticky top-0 z-50 shadow-lg">
+                        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <div>
+                                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                                    {/* Project Title Placeholder */}
+                                </h1>
+                                <p className="text-gray-400 text-sm mt-1">Project Tracking System</p>
+                            </div>
+                            <div className="flex space-x-2 items-center">
+                                <button 
+                                    onClick={() => setActiveTab('form')} 
+                                    className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-colors shadow-sm font-medium 
+                                        ${activeTab === 'form' ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                                >
+                                    <FileText size={18} />
+                                    <span>กรอกข้อมูล</span>
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('dashboard')} 
+                                    className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-colors shadow-sm font-medium 
+                                        ${activeTab === 'dashboard' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                                    disabled={isCapturing}
+                                >
+                                    <LayoutDashboard size={18} /><span>Dashboard</span>
+                                </button>
+                                {activeTab === 'dashboard' && (
+                                    <button onClick={handleCaptureImage} disabled={isCapturing} className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-all shadow-sm font-medium ml-2 ${isCapturing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-gradient-to-r from-pink-500 to-rose-500 text-white hover:from-pink-600 hover:to-rose-600'}`}>
+                                        {isCapturing ? <span className="flex items-center"><span className="animate-spin mr-2">⏳</span> Saving...</span> : <><Camera size={18} /><span>Download images</span></>}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="max-w-7xl mx-auto px-4 py-8"> 
+                        {activeTab === 'dashboard' && (
+                            <div ref={dashboardRef} className="dashboard-container space-y-6 animate-fade-in p-6 rounded-xl bg-gray-950">
+                                
+                                {/* Main Report Title with Rainbow Card (Pastel Rainbow Text for visibility) */}
+                                <RainbowCard className="w-full mb-6" internalClass="bg-gray-900/50 border-gray-800">
+                                    <div className="p-4 text-center">
+                                        <h2 className="text-3xl font-extrabold drop-shadow-lg pastel-rainbow-text-stable">
+                                            Progress on New HarborLand Branch Preparedness
+                                        </h2>
+                                    </div>
+                                </RainbowCard>
+
+                                {/* 1. General Info Cards (Compact Size) */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <RainbowCard internalClass="bg-gradient-to-r from-pink-600 via-rose-500 to-orange-500 border-white/10">
+                                        <div className="p-4 flex items-center space-x-3 h-full">
+                                            <div className="p-2 bg-white/20 rounded-full text-white shadow-sm backdrop-blur-sm"><Calendar size={24} /></div>
+                                            <div>
+                                                <p className="text-lg font-bold text-white/80 drop-shadow-md">วันที่ (Date)</p>
+                                                <p className="text-3xl font-extrabold text-white drop-shadow-md">{formatDate(generalInfo.date)}</p>
+                                            </div>
+                                        </div>
+                                    </RainbowCard>
+                                    <RainbowCard internalClass="bg-gradient-to-r from-teal-500 via-cyan-500 to-blue-500 border-white/10">
+                                        <div className="p-4 flex items-center space-x-3 h-full">
+                                            <div className="p-2 bg-white/20 rounded-full text-white shadow-sm backdrop-blur-sm"><MapPin size={24} /></div>
+                                            <div>
+                                                <p className="text-lg font-bold text-white/80 drop-shadow-md">สาขา (Branch)</p>
+                                                <p className="text-2xl font-extrabold text-white drop-shadow-md" title={generalInfo.branch}>{generalInfo.branch}</p>
+                                            </div>
+                                        </div>
+                                    </RainbowCard>
+                                    <RainbowCard internalClass="bg-gradient-to-r from-violet-600 via-purple-500 to-fuchsia-500 border-white/10">
+                                        <div className="p-4 flex items-center space-x-3 h-full">
+                                            <div className="p-2 bg-white/20 rounded-full text-white shadow-sm backdrop-blur-sm"><Users size={24} /></div>
+                                            <div>
+                                                <p className="text-lg font-bold text-white/80 drop-shadow-md">จำนวนพนักงาน</p>
+                                                <p className="text-3xl font-extrabold text-white drop-shadow-md">{stats.staffCountValue || '-'}</p>
+                                            </div>
+                                        </div>
+                                    </RainbowCard>
+                                </div>
+
+                                {/* 2. Charts Row 1 (Pie + Bar) - Side by Side on larger screens */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                    {/* Pie Chart (1 Column) */}
+                                    <RainbowCard className="p-0 col-span-1 flex flex-col items-center justify-center">
+                                        <div className="p-6 w-full h-full flex flex-col items-center min-h-[300px]">
+                                            <h3 className="text-lg font-bold mb-4 text-gray-200 flex items-center">
+                                                <Activity className="mr-2 text-purple-400" size={20} /> สรุปความคืบหน้าโครงการ
+                                            </h3>
+                                            <div className="relative w-full h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <PieChart>
+                                                        <defs>
+                                                            <linearGradient id="pieRainbow" x1="1" y1="0" x2="0" y2="1">
+                                                                <stop offset="0%" stopColor="#ef4444" />
+                                                                <stop offset="20%" stopColor="#f97316" />
+                                                                <stop offset="40%" stopColor="#eab308" />
+                                                                <stop offset="60%" stopColor="#22c55e" />
+                                                                <stop offset="80%" stopColor="#3b82f6" />
+                                                                <stop offset="100%" stopColor="#a855f7" />
+                                                            </linearGradient>
+                                                            <filter id="shadow3d" x="-20%" y="-20%" width="140%" height="140%">
+                                                                <feDropShadow dx="2" dy="2" stdDeviation="2" floodColor="#000" floodOpacity="0.8"/>
+                                                            </filter>
+                                                        </defs>
+                                                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={0} dataKey="value" startAngle={90} endAngle={-270} stroke="none" filter="url(#shadow3d)">
+                                                            <Cell key="cell-0" fill="url(#pieRainbow)" />
+                                                            <Cell key="cell-1" fill="#1f2937" />
+                                                        </Pie>
+                                                    </PieChart>
+                                                </ResponsiveContainer>
+                                                {/* FIX: Changed gradient clip text to solid white for html2canvas compatibility */}
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+                                                    <span className="text-5xl font-black text-white drop-shadow-lg">
+                                                        {stats.overallProgress}%
+                                                    </span>
+                                                    <span className="text-xs text-gray-500 mt-2 font-bold tracking-widest">COMPLETE</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </RainbowCard>
+
+                                    {/* Bar Chart (2 Columns) */}
+                                    <RainbowCard className="p-0 col-span-1 lg:col-span-2">
+                                        <div className="p-6 w-full h-full min-h-[300px]">
+                                            <h3 className="text-lg font-bold mb-4 text-gray-200">สรุปคะแนนเฉลี่ยรายหัวข้อ (Average by Criteria)</h3>
+                                            <div className="h-64 w-full">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart layout="vertical" data={stats.criteriaAverages} margin={{ top: 5, right: 60, left: 40, bottom: 5 }}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+                                                        <XAxis type="number" domain={[0, 100]} stroke="#9ca3af" />
+                                                        <YAxis dataKey="subject" type="category" stroke="#d1d5db" width={150} tick={{fontSize: 12, fontWeight: 500}} />
+                                                        <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }} itemStyle={{ color: '#e5e7eb' }} cursor={{fill: '#1f2937'}} />
+                                                        <defs>
+                                                            <linearGradient id="barRainbow1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00F260" /><stop offset="50%" stopColor="#0575E6" /><stop offset="100%" stopColor="#8E2DE2" /></linearGradient>
+                                                            <linearGradient id="barRainbow2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#FF0000" /><stop offset="50%" stopColor="#FFFF00" /><stop offset="100%" stopColor="#F7971E" /></linearGradient>
+                                                            <linearGradient id="barRainbow3" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#833ab4" /><stop offset="50%" stopColor="#fd1d1d" /><stop offset="100%" stopColor="#fcb045" /></linearGradient>
+                                                        </defs>
+                                                        <Bar dataKey="A" name="Progress %" radius={[0, 10, 10, 0]} barSize={30} label={{ position: 'right', fill: '#e5e7eb', fontSize: 14, fontWeight: 'bold', formatter: (value) => `${value}%` }}>
+                                                            {stats.criteriaAverages.map((entry, index) => <Cell key={`cell-${index}`} fill={`url(#barRainbow${index+1})`} />)}
+                                                        </Bar>
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                    </RainbowCard>
+                                </div>
+
+                                {/* 3. Line Chart (Full Width) */}
+                                <RainbowCard className="p-0">
+                                    <div className="p-6 w-full h-full">
+                                        <h3 className="text-lg font-bold mb-6 text-gray-200">สรุปความคืบหน้าแยกตามโซน (Progress by Zone)</h3>
+                                        <div className="h-[350px] w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <LineChart data={stats.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                                                    <defs>
+                                                        <linearGradient id="rainbowCleanliness" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00F260" /><stop offset="50%" stopColor="#0575E6" /><stop offset="100%" stopColor="#8E2DE2" /></linearGradient>
+                                                        <linearGradient id="rainbowArrangement" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#FF0000" /><stop offset="50%" stopColor="#FFFF00" /><stop offset="100%" stopColor="#F7971E" /></linearGradient>
+                                                        <linearGradient id="rainbowInstallation" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#833ab4" /><stop offset="50%" stopColor="#fd1d1d" /><stop offset="100%" stopColor="#fcb045" /></linearGradient>
+                                                        <filter id="lineShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="3" dy="3" stdDeviation="3" floodColor="rgba(0,0,0,0.5)" /></filter>
+                                                    </defs>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                                    <XAxis dataKey="name" stroke="#9ca3af" style={{ fontSize: '0.75rem', fontWeight: 500 }} angle={-45} textAnchor="end" height={80} interval={0} />
+                                                    <YAxis stroke="#9ca3af" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
+                                                    <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }} labelStyle={{ color: '#e5e7eb', fontWeight: 'bold', marginBottom: '0.5rem' }} formatter={(value, name) => [`${value}%`, name]} />
+                                                    <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+                                                    <Line type="monotone" dataKey="cleanliness" name="ความสะอาด" stroke="url(#rainbowCleanliness)" strokeWidth={4} dot={{ r: 4, fill: '#0575E6' }} activeDot={{ r: 8 }} filter="url(#lineShadow)" label={{ position: 'top', fill: '#4ade80', fontSize: 11, formatter: (val) => val > 0 ? val : '' }} />
+                                                    <Line type="monotone" dataKey="arrangement" name="การจัดเรียง" stroke="url(#rainbowArrangement)" strokeWidth={4} dot={{ r: 4, fill: '#FFFF00' }} activeDot={{ r: 8 }} filter="url(#lineShadow)" label={{ position: 'top', fill: '#facc15', fontSize: 11, formatter: (val) => val > 0 ? val : '' }} />
+                                                    <Line type="monotone" dataKey="installation" name="การติดตั้งอุปกรณ์" stroke="url(#rainbowInstallation)" strokeWidth={4} dot={{ r: 4, fill: '#fd1d1d' }} activeDot={{ r: 8 }} filter="url(#lineShadow)" label={{ position: 'top', fill: '#c084fc', fontSize: 11, formatter: (val) => val > 0 ? val : '' }} />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+                                </RainbowCard>
+
+                                {/* 4. Summary Table (Full Width, Show All) */}
+                                <RainbowCard className="p-0">
+                                    <div className="p-4 bg-gray-800 border-b border-gray-700">
+                                        <h3 className="font-bold text-gray-200">ตารางสรุปเปอร์เซ็นต์งาน (Detailed Percentages)</h3>
+                                    </div>
+                                    <div className="overflow-x-auto"> 
+                                        <table className="w-full text-sm text-left text-gray-300">
+                                            <thead class="text-xs text-gray-400 uppercase bg-gray-700 shadow-sm">
+                                                <tr class="bg-transparent">
+                                                    <th className="px-6 py-3 w-1/3">Zone</th>
+                                                    <th class="px-6 py-3 text-center">ความสะอาด</th>
+                                                    <th class="px-6 py-3 text-center">การจัดเรียง</th>
+                                                    <th class="px-6 py-3 text-center">ติดตั้งอุปกรณ์</th>
+                                                    <th class="px-6 py-3 text-center w-40">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {stats.chartData.map((item, idx) => (
+                                                    <tr key={idx} className="border-b border-gray-700 hover:bg-gray-800 transition-colors">
+                                                        <td className="px-6 py-4 font-semibold text-gray-200 text-base">{item.displayName}</td>
+                                                        <td className="px-6 py-4 align-middle"><div className="w-full max-w-[120px] mx-auto"><RainbowProgressBar value={item.cleanliness} /></div></td>
+                                                        <td className="px-6 py-4 align-middle"><div className="w-full max-w-[120px] mx-auto"><RainbowProgressBar value={item.arrangement} /></div></td>
+                                                        <td className="px-6 py-4 align-middle"><div className="w-full max-w-[120px] mx-auto"><RainbowProgressBar value={item.installation} /></div></td>
+                                                        <td class="px-6 py-4 text-center w-40">
+                                                            <span className={`text-sm font-bold tracking-wider ${getTotalColorClass(item.average)}`}>
+                                                                {item.average}%
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </RainbowCard>
+                            </div>
+                        )}
+
+                        {activeTab === 'form' && (
+                            <div className="space-y-8 max-w-4xl mx-auto animate-fade-in">
+                                
+                                {/* Reset Button (New addition) */}
+                                <div className="flex justify-end pt-2">
+                                    <button 
+                                        onClick={() => setIsResetModalOpen(true)} 
+                                        className="flex items-center space-x-2 px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors shadow-md"
+                                    >
+                                        <RotateCcw size={16} />
+                                        <span>รีเซ็ตข้อมูล (0%)</span>
+                                    </button>
+                                </div>
+
+
+                                {/* Form Content */}
+                                <RainbowCard className="p-0" internalClass="bg-gray-900 border-gray-800">
+                                    <div className="p-6 rounded-xl backdrop-blur-sm">
+                                        <h2 className="text-xl font-bold mb-6 text-gray-100 flex items-center border-b border-white/20 pb-2">1. ข้อมูลทั่วไป (General Information)</h2>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-300 mb-2">วันที่ (Date)</label>
+                                                <div className="flex flex-col space-y-2">
+                                                    <input type="date" value={generalInfo.date} onChange={(e) => handleGeneralChange('date', e.target.value)} className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500" />
+                                                    <div className="text-sm text-emerald-300 bg-emerald-900/30 px-2 py-1 rounded border border-emerald-500/30 self-start backdrop-blur-md">แสดงผล: {formatDate(generalInfo.date)}</div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-300 mb-2">สาขา (Branch)</label>
+                                                <input type="text" value={generalInfo.branch} onChange={(e) => handleGeneralChange('branch', e.target.value)} className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-300 mb-2">จำนวนพนักงาน (Staff)</label>
+                                                <input 
+                                                    type="number" 
+                                                    value={generalInfo.staffCount} 
+                                                    onChange={(e) => handleGeneralChange('staffCount', e.target.value)} 
+                                                    className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500" 
+                                                    placeholder="กรอกจำนวน" // Added placeholder for clarity
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </RainbowCard>
+
+                                <div className="grid grid-cols-1 gap-6">
+                                    {ZONES.map((zone) => (
+                                        <RainbowCard key={zone.id} className="p-0" internalClass="bg-gray-900 border-gray-800">
+                                            <div className="p-6 rounded-xl backdrop-blur-sm">
+                                                <h3 className="text-lg font-bold text-gray-100 mb-4">{zone.name}</h3>
+                                                <div className="space-y-6">
+                                                    {CRITERIA.map((criteria) => (
+                                                        <div key={criteria.key}>
+                                                            <div className="flex justify-between mb-1 items-center">
+                                                                <label className="text-sm font-medium">{criteria.label}</label>
+                                                                <div className="flex items-center space-x-2">
+                                                                    {/* Input field for direct percentage entry */}
+                                                                    <input 
+                                                                        type="number"
+                                                                        min="0"
+                                                                        max="100"
+                                                                        value={zoneData[zone.id][criteria.key]}
+                                                                        onChange={(e) => handleZoneChange(zone.id, criteria.key, e.target.value)}
+                                                                        className="w-16 bg-gray-950 border border-gray-700 rounded px-2 py-1 text-gray-200 text-sm focus:ring-1 focus:ring-purple-500 outline-none text-center"
+                                                                        placeholder="%"
+                                                                    />
+                                                                    <span className="text-sm font-bold text-gray-200">%</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-4">
+                                                                <input 
+                                                                    type="range" 
+                                                                    min="0" 
+                                                                    max="100" 
+                                                                    value={zoneData[zone.id][criteria.key] || 0} // Use 0 for slider value if empty
+                                                                    onChange={(e) => handleZoneChange(zone.id, criteria.key, e.target.value)} 
+                                                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500" 
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </RainbowCard>
+                                    ))}
+                                </div>
+
+                                <div className="sticky bottom-4 bg-gray-900/80 backdrop-blur p-4 border-t border-gray-700 flex justify-end rounded-lg shadow-lg">
+                                    <button onClick={() => setActiveTab('dashboard')} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-8 rounded-xl shadow-md flex items-center space-x-2 transition-all transform hover:scale-105">
+                                        <CheckCircle size={20} /><span>บันทึกและดู Dashboard</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(HarborlandSetupApp));
+    </script>
+</body>
+</html>
